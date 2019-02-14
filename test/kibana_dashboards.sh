@@ -2,7 +2,7 @@
 
 # Test script that loads dashboards
 source "$(dirname "${BASH_SOURCE[0]}" )/../hack/lib/init.sh"
-source "${OS_O_A_L_DIR}/deployer/scripts/util.sh"
+source "${OS_O_A_L_DIR}/hack/testing/util.sh"
 trap os::test::junit::reconcile_output EXIT
 os::util::environment::use_sudo
 
@@ -33,9 +33,9 @@ else
     current_project="$( oc project -q )"
     os::log::debug "$( oc login --username=$LOG_ADMIN_USER --password=$LOG_ADMIN_PW )"
     os::log::debug "$( oc login --username=system:admin )"
-    os::log::debug "$( oadm policy add-cluster-role-to-user cluster-admin $LOG_ADMIN_USER )"
     os::log::debug "$( oc project $current_project )"
 fi
+os::log::debug "$( oc adm policy add-cluster-role-to-user cluster-admin $LOG_ADMIN_USER )"
 
 function cleanup() {
     set +e
@@ -47,17 +47,17 @@ trap cleanup EXIT
 
 # test error conditions
 for pod in $espod $esopspod ; do
-    os::cmd::expect_failure_and_text "oc exec $pod -- es_load_kibana_ui_objects" "Usage:"
-    os::cmd::expect_failure_and_text "oc exec $pod -- es_load_kibana_ui_objects no-such-user" "Could not find kibana index"
+    os::cmd::expect_failure_and_text "oc exec -c elasticsearch $pod -- es_load_kibana_ui_objects" "Usage:"
+    os::cmd::expect_failure_and_text "oc exec -c elasticsearch $pod -- es_load_kibana_ui_objects no-such-user" "Could not find kibana index"
 done
 
 # use admin user created in logging framework
 # make sure admin kibana index exists - log in to ES as admin user
 get_test_user_token $LOG_ADMIN_USER $LOG_ADMIN_PW
 for pod in $espod $esopspod ; do
-    curl_es_with_token $pod "/" "$test_name" "$test_token" | curl_output
+    curl_es_pod_with_token $pod "/" "$test_token" | curl_output
     # add the ui objects
-    os::cmd::expect_success_and_text "oc exec $pod -- es_load_kibana_ui_objects $LOG_ADMIN_USER" "Success"
+    os::cmd::expect_success_and_text "oc exec -c elasticsearch $pod -- es_load_kibana_ui_objects $LOG_ADMIN_USER" "Success"
 done
 
 os::log::info Finished with test - login to kibana and kibana-ops to verify the admin user can load and view the dashboards with no errors

@@ -22,17 +22,27 @@ EXPECTED_RESPONSE_CODE=200
 secret_dir=/etc/elasticsearch/secret
 max_time=${READINESS_PROBE_TIMEOUT:-30}
 
-response_code=$(curl -s -X HEAD \
-    --cacert $secret_dir/admin-ca \
-    --cert $secret_dir/admin-cert \
-    --key  $secret_dir/admin-key \
-    --max-time $max_time \
-    -w '%{response_code}' \
-    "${ES_REST_BASEURL}/")
+function check_if_ready() {
+  path="$1"
+  err_msg="$2"
+  response_code=$(curl -s --head \
+      --cacert $secret_dir/admin-ca \
+      --cert $secret_dir/admin-cert \
+      --key  $secret_dir/admin-key \
+      --max-time $max_time \
+      -o /dev/null \
+      -w '%{response_code}' \
+      "${ES_REST_BASEURL}${path}")
 
-if [ ${response_code} == ${EXPECTED_RESPONSE_CODE} ]; then
-  exit 0
-else
-  echo "Elasticsearch node is not ready to accept HTTP requests yet [response code: ${response_code}]"
-  exit 1
-fi
+  if [ "${response_code}" != ${EXPECTED_RESPONSE_CODE} ]; then
+    echo "${err_msg} [response code: ${response_code}]"
+    exit 1
+  fi
+}
+
+function check_for_init_complete() {
+  test -f ${HOME}/init_complete
+}
+
+check_if_ready "/" "Elasticsearch node is not ready to accept HTTP requests yet"
+check_for_init_complete || cat ${HOME}/init_failures

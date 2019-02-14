@@ -1,4 +1,4 @@
-FROM centos:centos7
+FROM elasticsearch:5.6.13
 
 MAINTAINER OpenShift Development <dev@lists.openshift.redhat.com>
 
@@ -6,50 +6,39 @@ EXPOSE 9200
 EXPOSE 9300
 USER 0
 
-ENV HOME=/opt/app-root/src \
-  ES_VER=2.4.4 \
-  ES_CLOUD_K8S_VER=2.4.4 \
-  OSE_ES_VER=2.4.4.9 \
-  ES_CONF=/usr/share/elasticsearch/config \
-  INSTANCE_RAM=512G \
-  NODE_QUORUM=1 \
-  RECOVER_AFTER_NODES=1 \
-  RECOVER_EXPECTED_NODES=1 \
-  RECOVER_AFTER_TIME=5m \
-  PLUGIN_LOGLEVEL=INFO \
-  ES_JAVA_OPTS="-Dmapper.allow_dots_in_name=true"
+ENV ES_CONF=/etc/elasticsearch/ \
+    ES_HOME=/usr/share/elasticsearch \
+    ES_VER=5.6.13 \
+    HOME=/opt/app-root/src \
+    INSTANCE_RAM=512G \
+    JAVA_VER=1.8.0 \
+    NODE_QUORUM=1 \
+    OSE_ES_VER=5.6.13.2-redhat-1 \
+    PROMETHEUS_EXPORTER_VER=5.6.13.1-redhat-1 \
+    PLUGIN_LOGLEVEL=INFO \
+    RECOVER_AFTER_NODES=1 \
+    RECOVER_EXPECTED_NODES=1 \
+    RECOVER_AFTER_TIME=5m \
+    RELEASE_STREAM=prod \
+    container=oci
 
-ARG ES_CLOUD_K8S_VER=2.4.4
-ARG OSE_ES_VER=2.4.4.5
-ARG ES_CLOUD_K8S_URL
+ARG OSE_ES_VER=5.6.13.2-redhat-1
 ARG OSE_ES_URL
-
-LABEL io.k8s.description="Elasticsearch container to serve as EFK aggregated logging backend" \
-  io.k8s.display-name="Elasticsearch ${ES_VER}" \
-  io.openshift.expose-services="9200:https, 9300:https" \
-  io.openshift.tags="logging,elasticsearch"
-
-ADD elasticsearch.repo /etc/yum.repos.d/elasticsearch.repo
-# install the RPMs in a separate step so it can be cached
-RUN rpm --import https://packages.elastic.co/GPG-KEY-elasticsearch && \
-    yum install -y --setopt=tsflags=nodocs \
-                java-1.8.0-openjdk-headless \
-                elasticsearch-${ES_VER} \
-                PyYAML && \
-    yum clean all
-
+ARG PROMETHEUS_EXPORTER_VER=5.6.13.1-redhat-1
+ARG PROMETHEUS_EXPORTER_URL
+ARG MAVEN_REPO_URL=http://download-node-02.eng.bos.redhat.com/brewroot/repos/lpc-rhel-7-maven-build/latest/maven/
 
 ADD sgconfig/ ${HOME}/sgconfig/
-ADD index_templates/ /usr/share/elasticsearch/index_templates/
-ADD index_patterns/ /usr/share/elasticsearch/index_patterns/
-ADD kibana_ui_objects/ /usr/share/elasticsearch/kibana_ui_objects/
-
-ADD probe/ /usr/share/elasticsearch/probe/
-ADD install.sh ${HOME}/
-RUN ${HOME}/install.sh
-ADD run.sh ${HOME}/
+ADD index_templates/ ${ES_HOME}/index_templates/
+ADD index_patterns/ ${ES_HOME}/index_patterns/
+ADD init/ ${ES_HOME}/init/
+ADD kibana_ui_objects/ ${ES_HOME}/kibana_ui_objects/
+ADD probe/ ${ES_HOME}/probe/
+ADD init.sh run.sh prep-install.${RELEASE_STREAM} install.sh ${HOME}/
 COPY utils/** /usr/local/bin/
 RUN ln -s /usr/local/bin/logging ${HOME}/logging
+
+RUN ${HOME}/install.sh
 
 WORKDIR ${HOME}
 USER 1000

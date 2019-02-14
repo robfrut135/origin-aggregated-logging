@@ -38,7 +38,6 @@ function os::start::configure_server() {
 
 	os::start::internal::create_master_certs     "${version}"
 	os::start::internal::configure_node          "${version}"
-	os::start::internal::create_bootstrap_policy "${version}"
 	os::start::internal::configure_master        "${version}"
 
 	# fix up owner after creating initial config
@@ -108,23 +107,6 @@ function os::start::internal::configure_node() {
 }
 readonly -f os::start::internal::configure_node
 
-# os::start::internal::create_bootstrap_policy creates bootstrap policy files
-#
-# Globals:
-#  - MASTER_CONFIG_DIR
-# Arguments:
-#  1 - alternate version for the config
-function os::start::internal::create_bootstrap_policy() {
-	local version="${1:-}"
-	local openshift_volumes=( "${MASTER_CONFIG_DIR}" )
-	local openshift_executable
-	openshift_executable="$(os::start::internal::openshift_executable "${version}")"
-
-	os::log::debug "Creating boostrap policy files for the OpenShift server"
-	${openshift_executable} admin create-bootstrap-policy-file --filename="${MASTER_CONFIG_DIR}/policy.json"
-}
-readonly -f os::start::internal::create_bootstrap_policy
-
 # os::start::internal::configure_master creates the configuration for the OpenShift master
 #
 # Globals:
@@ -188,6 +170,7 @@ function os::start::internal::patch_master_config() {
 	openshift ex config patch - --type json --patch="[{\"op\": \"replace\", \"path\": \"/etcdClientInfo/urls\", \"value\": [\"${API_SCHEME}://${API_HOST}:${ETCD_PORT}\"]}]" | \
 	openshift ex config patch - --patch="{\"etcdConfig\": {\"peerAddress\": \"${API_HOST}:${ETCD_PEER_PORT}\"}}" | \
 	openshift ex config patch - --patch="{\"etcdConfig\": {\"peerServingInfo\": {\"bindAddress\": \"${API_HOST}:${ETCD_PEER_PORT}\"}}}" | \
+	openshift ex config patch - --patch="{\"auditConfig\": {\"enabled\": true}}" | \
 	openshift ex config patch - --patch="{\"imagePolicyConfig\": {\"maxImagesBulkImportedPerRepository\": ${MAX_IMAGES_BULK_IMPORTED_PER_REPOSITORY:-5}}}" > "${SERVER_CONFIG_DIR}/master/master-config.yaml"
 
 	# Make oc use ${MASTER_CONFIG_DIR}/admin.kubeconfig, and ignore anything in the running user's $HOME dir
@@ -606,11 +589,11 @@ function os::start::internal::print_server_info() {
 #  None
 function os::start::router() {
 	os::log::debug "Installing the router"
-	oadm policy add-scc-to-user privileged --serviceaccount='router' --config="${ADMIN_KUBECONFIG}"
+	oc adm policy add-scc-to-user privileged --serviceaccount='router' --config="${ADMIN_KUBECONFIG}"
 	# Create a TLS certificate for the router
 	if [[ -n "${CREATE_ROUTER_CERT:-}" ]]; then
 		os::log::debug "Generating router TLS certificate"
-		oadm ca create-server-cert --hostnames="*.${API_HOST}.nip.io"          \
+		oc adm ca create-server-cert --hostnames="*.${API_HOST}.nip.io"        \
 		                           --key="${MASTER_CONFIG_DIR}/router.key"     \
 		                           --cert="${MASTER_CONFIG_DIR}/router.crt"    \
 		                           --signer-key="${MASTER_CONFIG_DIR}/ca.key"  \

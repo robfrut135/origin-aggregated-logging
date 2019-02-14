@@ -181,7 +181,7 @@ function os::util::curl_etcd() {
 			               -out "${etcd_client_cert_p12}" \
 			               -password "pass:${etcd_client_cert_p12_password}"
 		fi
-b
+
 		curl --fail --silent --cacert "${ca_bundle}" \
 		     --cert "${etcd_client_cert_p12}:${etcd_client_cert_p12_password}" "${full_url}"
 	else
@@ -189,21 +189,6 @@ b
 		     --cert "${etcd_client_cert}" --key "${etcd_client_key}" "${full_url}"
 	fi
 }
-
-# os::util::host_platform determines what the host OS and architecture
-# are, as Golang sees it. The go tool chain does some slightly different
-# things when the target platform matches the host platform.
-#
-# Globals:
-#  None
-# Arguments:
-#  None
-# Returns:
-#  None
-function os::util::host_platform() {
-	echo "$(go env GOHOSTOS)/$(go env GOHOSTARCH)"
-}
-readonly -f os::util::host_platform
 
 # os::util::list_go_src_files lists files we consider part of our project
 # source code, useful for tools that iterate over source to provide vet-
@@ -222,7 +207,7 @@ function os::util::list_go_src_files() {
 		-o -wholename './.*' \
 		-o -wholename './pkg/assets/bindata.go' \
 		-o -wholename './pkg/assets/*/bindata.go' \
-		-o -wholename './pkg/bootstrap/bindata.go' \
+		-o -wholename './pkg/oc/bootstrap/bindata.go' \
 		-o -wholename './openshift.local.*' \
 		-o -wholename './test/extended/testdata/bindata.go' \
 		-o -wholename '*/vendor/*' \
@@ -233,3 +218,19 @@ function os::util::list_go_src_files() {
 	\) -name '*.go' | sort -u
 }
 readonly -f os::util::list_go_src_files
+
+# os::util::list_go_src_dirs lists dirs in origin/ and cmd/ dirs excluding
+# cmd/cluster-capacity and cmd/service-catalog and doc.go useful for tools that
+# iterate over source to provide vetting or linting, or for godep-save etc.
+#
+# Globals:
+#  None
+# Arguments:
+#  None
+# Returns:
+#  None
+function os::util::list_go_src_dirs() {
+	os::util::list_go_src_files | cut -d '/' -f 1-2 | grep -v ".go$" | grep -v "^./cmd" | LC_ALL=C sort -u
+	os::util::list_go_src_files | grep "^./cmd/"| cut -d '/' -f 1-3 | grep -v ".go$" | LC_ALL=C sort -u
+}
+readonly -f os::util::list_go_src_dirs

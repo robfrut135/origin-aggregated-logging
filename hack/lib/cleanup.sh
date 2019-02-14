@@ -10,20 +10,22 @@
 #
 # Globals:
 #  - ARTIFACT_DIR
+#  - SKIP_CLEANUP
 #  - SKIP_TEARDOWN
 #  - SKIP_IMAGE_CLEANUP
 # Arguments:
-#  1 - return code of the script
+#  None
 # Returns:
 #  None
 function os::cleanup::all() {
-	local return_code="$1"
+	if [[ -n "${SKIP_CLEANUP:-}" ]]; then
+		os::log::warning "[CLEANUP] Skipping cleanup routines..."
+		return 0
+	fi
 
 	# All of our cleanup is best-effort, so we do not care
 	# if any specific step fails.
 	set +o errexit
-
-	os::test::junit::generate_report
 
 	os::log::info "[CLEANUP] Beginning cleanup routines..."
 	os::cleanup::dump_events
@@ -38,7 +40,6 @@ function os::cleanup::all() {
 		os::cleanup::processes
 		os::cleanup::prune_etcd
 	fi
-	os::util::describe_return_code "${return_code}"
 }
 readonly -f os::cleanup::all
 
@@ -291,7 +292,7 @@ readonly -f os::cleanup::find_cache_alterations
 function os::cleanup::dump_pprof_output() {
 	if go tool -n pprof >/dev/null 2>&1 && [[ -s cpu.pprof ]]; then
 		os::log::info "[CLEANUP] \`pprof\` output logged to $( os::util::repository_relative_path "${LOG_DIR}/pprof.out" )"
-		go tool pprof -text "./_output/local/bin/$(os::util::host_platform)/openshift" cpu.pprof >"${LOG_DIR}/pprof.out" 2>&1
+		go tool pprof -text "./_output/local/bin/$(os::build::host_platform)/openshift" cpu.pprof >"${LOG_DIR}/pprof.out" 2>&1
 	fi
 }
 readonly -f os::cleanup::dump_pprof_output

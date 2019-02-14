@@ -8,6 +8,8 @@
 #  - the Kibana cert and key are functional
 #  - indices have been successfully created by Fluentd
 #    in Elasticsearch
+#  - Expected plugins are installed on every Elasticsearch node
+#  - Prometheus exporter plugin yields metrics
 #
 # This script expects the following environment
 # variables:
@@ -26,10 +28,12 @@
 #               PW
 #               }: credentials for the admin user
 source "$(dirname "${BASH_SOURCE[0]}" )/../../hack/lib/init.sh"
-source "${OS_O_A_L_DIR}/deployer/scripts/util.sh"
+source "${OS_O_A_L_DIR}/hack/testing/util.sh"
 
 trap os::test::junit::reconcile_output EXIT
 os::util::environment::setup_time_vars
+
+LOGGING_NS=${LOGGING_NS:-openshift-logging}
 
 query_size="${OAL_QUERY_SIZE:-"500"}"
 test_ip="${OAL_TEST_IP:-"127.0.0.1"}"
@@ -44,28 +48,43 @@ test_user="$( oc whoami )"
 test_token="$( oc whoami -t )"
 
 os::cmd::expect_success "oc login --username=system:admin"
-os::cmd::expect_success "oc project logging"
+os::cmd::expect_success "oc project ${LOGGING_NS}"
+
+result=$(oc get sa prometheus-scraper -n ${LOGGING_NS} ||:)
+if [ "$result" == "" ] ; then
+  os::cmd::expect_success "oc create sa prometheus-scraper -n ${LOGGING_NS}"
+fi
+result=$(oc get clusterrole prometheus-k8s ||:)
+if [ "$result" == "" ] ; then
+  os::cmd::expect_success "echo '{\"apiVersion\":\"rbac.authorization.k8s.io/v1\", \"kind\":\"ClusterRole\",\"metadata\":{\"name\":\"prometheus-k8s\"},\"rules\":[{\"nonResourceURLs\":[\"/metrics\"],\"verbs\":[\"get\"]}]}' | oc create -f -"
+fi
+result=$(oc get clusterrolebinding prometheus-k8s ||:)
+if [ "$result" == "" ] ; then
+  os::cmd::expect_success "oc adm policy add-cluster-role-to-user prometheus-k8s -z prometheus-scraper"
+fi
+SATOKEN=$(oc -n ${LOGGING_NS} serviceaccounts get-token prometheus-scraper)
 
 # We can reach the Elasticsearch service at serviceName:apiPort
-elasticsearch_api="$( oc get svc "${OAL_ELASTICSEARCH_SERVICE}" -o jsonpath='{ .metadata.name }:{ .spec.ports[?(@.targetPort=="restapi")].port }' )"
+es_svc=$( get_es_svc "${OAL_ELASTICSEARCH_SERVICE}" )
+elasticsearch_api="$( oc get svc $es_svc -o jsonpath='{ .metadata.name }:{ .spec.ports[?(@.targetPort=="restapi")].port }' )"
 
 for kibana_pod in $( oc get pods --selector component="${OAL_KIBANA_COMPONENT}"  -o jsonpath='{ .items[*].metadata.name }' ); do
 	os::log::info "Testing Kibana pod ${kibana_pod} for a successful start..."
-	os::cmd::try_until_text "oc exec ${kibana_pod} -c kibana -- curl -s --request HEAD --write-out '%{response_code}' http://localhost:5601/" "200" "$(( 10*TIME_MIN ))"
+	os::cmd::try_until_text "oc exec ${kibana_pod} -c kibana -- curl --silent --request HEAD --head --output /dev/null --write-out '%{response_code}' http://localhost:5601/" "200" "$(( 10*TIME_MIN ))"
 	os::cmd::try_until_text "oc get pod ${kibana_pod} -o jsonpath='{ .status.containerStatuses[?(@.name==\"kibana\")].ready }'" "true"
 	os::cmd::try_until_text "oc get pod ${kibana_pod} -o jsonpath='{ .status.containerStatuses[?(@.name==\"kibana-proxy\")].ready }'" "true"
 done
 
-for elasticsearch_pod in $( oc get pods --selector component="${OAL_ELASTICSEARCH_COMPONENT}" -o jsonpath='{ .items[*].metadata.name }' ); do
+for elasticsearch_pod in $( get_es_pod ${OAL_ELASTICSEARCH_COMPONENT} ); do
 	os::log::info "Testing Elasticsearch pod ${elasticsearch_pod} for a successful start..."
-	os::cmd::try_until_text "curl_es '${elasticsearch_pod}' '/' -X HEAD -w '%{response_code}'" '200' "$(( 10*TIME_MIN ))"
+	os::cmd::try_until_text "curl_es_pod '${elasticsearch_pod}' '/' --request HEAD --head --output /dev/null --write-out '%{response_code}'" '200' "$(( 10*TIME_MIN ))"
 	os::cmd::try_until_text "oc get pod ${elasticsearch_pod} -o jsonpath='{ .status.containerStatuses[?(@.name==\"elasticsearch\")].ready }'" "true"
 
 	os::log::info "Checking that Elasticsearch pod ${elasticsearch_pod} recovered its indices after starting..."
-	os::cmd::try_until_text "curl_es '${elasticsearch_pod}' '/_cluster/state/master_node' -w '%{response_code}'" "}200$" "$(( 10*TIME_MIN ))"
-	es_master_id="$( curl_es "${elasticsearch_pod}" "/_cluster/state/master_node" | python -c  'import json, sys; print json.load(sys.stdin)["master_node"];' )"
-	es_pod_node_id="$( curl_es "${elasticsearch_pod}" "/_nodes/_local" | python -c  'import json, sys; print json.load(sys.stdin)["nodes"].keys()[0];' )"
-	es_detected_master_id="$( curl_es "${elasticsearch_pod}" "/_cat/master?h=id" )"
+	os::cmd::try_until_text "curl_es_pod '${elasticsearch_pod}' '/_cluster/state/master_node' -w '%{response_code}'" "}200$" "$(( 10*TIME_MIN ))"
+	es_master_id="$( curl_es_pod "${elasticsearch_pod}" "/_cluster/state/master_node" | python -c  'import json, sys; print json.load(sys.stdin)["master_node"];' )"
+	es_pod_node_id="$( curl_es_pod "${elasticsearch_pod}" "/_nodes/_local" | python -c  'import json, sys; print json.load(sys.stdin)["nodes"].keys()[0];' )"
+	es_detected_master_id="$( curl_es_pod "${elasticsearch_pod}" "/_cat/master?h=id" )"
 	if [[ "${es_master_id}" == "${es_pod_node_id}" ]]; then
 		os::log::info "Elasticsearch pod ${elasticsearch_pod} is the master"
 	elif [[ -n "${es_detected_master_id}" ]]; then
@@ -74,16 +93,16 @@ for elasticsearch_pod in $( oc get pods --selector component="${OAL_ELASTICSEARC
 		os::log::fatal "Elasticsearch pod ${elasticsearch_pod} isn't master and was unable to detect a master"
 	fi
 
-	os::log::info "Checking that Elasticsearch pod ${elasticsearch_pod} has persisted indices created by Fluentd..."
-	os::cmd::try_until_text "curl_es '${elasticsearch_pod}' '/_cat/indices?h=index'" "^(project|\.operations)\." "$(( 10*TIME_MIN ))"
 	# We are interested in indices with one of the following formats:
 	#     .operations.<year>.<month>.<day>
 	#     project.<namespace>.<uuid>.<year>.<month>.<day>
-	for index in $( curl_es "${elasticsearch_pod}" '/_cat/indices?h=index' ); do
+	# BUT NOTE: There may be no project.* indices yet, and logs from projects
+	#     default openshift openshift-* will go to .operations
+	for index in $( curl_es_pod "${elasticsearch_pod}" '/_cat/indices?h=index' ); do
 		if [[ "${index}" == ".operations"* ]]; then
 			# If this is an operations index, we will be searching
-			# on disk for it
-			index_search_path="/var/log/messages"
+			# the journal for it
+			index_search_path="journal"
 		elif [[ "${index}" == "project."* ]]; then
 			# Otherwise, we will find it in the container log, which
 			# we can identify with the UUID
@@ -97,17 +116,49 @@ for elasticsearch_pod in $( oc get pods --selector component="${OAL_ELASTICSEARC
 		index="$( rev <<<"${index}" | cut -d"." -f 4- | rev )"
 
 		for kibana_pod in $( oc get pods --selector component="${OAL_KIBANA_COMPONENT}"  -o jsonpath='{ .items[*].metadata.name }' ); do
-			os::log::info "Cheking for index ${index} with Kibana pod ${kibana_pod}..."
+			os::log::info "Checking for index ${index} with Kibana pod ${kibana_pod}..."
 			# As we're checking system log files, we need to use `sudo`
 			os::cmd::expect_success "sudo -E VERBOSE=true go run '${OS_O_A_L_DIR}/hack/testing/check-logs.go' '${kibana_pod}' '${elasticsearch_api}' '${index}' '${index_search_path}' '${query_size}' '${test_user}' '${test_token}' '${test_ip}'"
 		done
 	done
 
 	os::log::info "Checking that Elasticsearch pod ${elasticsearch_pod} contains common data model index templates..."
-	os::cmd::expect_success "oc exec ${elasticsearch_pod} -- ls -1 /usr/share/elasticsearch/index_templates"
-	for template in $( oc exec "${elasticsearch_pod}" -- ls -1 /usr/share/elasticsearch/index_templates ); do
-		os::cmd::expect_success_and_text "curl_es '${elasticsearch_pod}' '/_template/${template}' -X HEAD -w '%{response_code}'" '200'
+	es_home="$( oc exec -c elasticsearch ${elasticsearch_pod} -- env | awk -F= '/^ES_HOME/ {print $2}')"
+	os::cmd::expect_success "oc exec -c elasticsearch ${elasticsearch_pod} -- ls -1 ${es_home}/index_templates"
+	for template in $( oc exec -c elasticsearch "${elasticsearch_pod}" -- ls -1 ${es_home}/index_templates ); do
+		os::cmd::expect_success_and_text "curl_es_pod '${elasticsearch_pod}' '/_template/${template}' --request HEAD --head --output /dev/null --write-out '%{response_code}'" '200'
 	done
+
+	os::log::debug "Checking that Elasticsearch pod ${elasticsearch_pod} has expected plugins installed"
+	curl_es_pod "${elasticsearch_pod}" '/_cat/plugins?local=true&v'
+	matching_plugins=0
+	found_plugins=$( curl_es_pod "${elasticsearch_pod}" '/_cat/plugins?local=true&h=component' )
+	for plugin in ${found_plugins[@]} ; do
+		os::log::info "Installed plugin: ${plugin}"
+		if [ "${plugin}" = "openshift-elasticsearch" ]; then
+			(( matching_plugins+=1 ))
+		elif [ "${plugin}" = "prometheus-exporter" ]; then
+			(( matching_plugins+=1 ))
+		fi
+	done
+	if [ "$matching_plugins" -lt "2" ]; then
+		os::log::fatal "Elasticsearch pod is missing expected plugin(s). Exp openshift-elasticsearch, prometheus-exporter, found: ${found_plugins[*]}"
+	else
+		os::log::info "Elasticsearch pod ${elasticsearch_pod} contains expected plugin(s)"
+	fi
+
+	os::log::info "Checking that Elasticsearch pod ${elasticsearch_pod} exports Prometheus metrics"
+    es_pod_ip=$(oc get pod ${elasticsearch_pod} -o jsonpath={.status.podIP})
+
+	if os::cmd::expect_success_and_text "curl_es_with_token '${es_pod_ip}' '/_prometheus/metrics' '${SATOKEN}' --output /dev/null --write-out '%{response_code}' -v" "200"; then
+		os::log::info "Received data from metrics endpoint"
+	else
+		artifact_log unable to connect to prometheus end point:
+		artifact_log $( curl_es_with_token "${es_pod_ip}" '/_prometheus/metrics' "$SATOKEN" )
+		artifact_log $(oc exec -n $LOGGING_NS -c elasticsearch ${elasticsearch_pod} -- es_acl get --doc=actiongroups)
+		os::log::fatal "Failed while curling _prometheus/metrics endpoint"
+	fi
+
 done
 
 os::test::junit::declare_suite_end

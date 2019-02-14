@@ -1,2 +1,11 @@
 *~
 _output/
+
+# vscode files
+.vscode/
+
+# python byte code
+*.pyc
+.venv
+venv
+vendor

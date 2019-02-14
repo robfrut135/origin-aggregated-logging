@@ -1,12 +1,16 @@
-# Origin-Aggregated-Logging [![Build Status](https://ci.openshift.redhat.com/jenkins/buildStatus/icon?job=test-origin-aggregated-logging)](https://ci.openshift.redhat.com/jenkins/job/test-origin-aggregated-logging)
+# Origin-Aggregated-Logging
+* Build and Push - master - [![Build and Push - master](https://ci.openshift.redhat.com/jenkins/buildStatus/icon?job=build-and-release-latest-origin-aggregated-logging)](https://ci.openshift.redhat.com/jenkins/view/All/job/build-and-release-latest-origin-aggregated-logging/)
+* Build and Push - branch release - [![Build and Push - branch release](https://ci.openshift.redhat.com/jenkins/buildStatus/icon?job=push_origin_aggregated_logging_release)](https://ci.openshift.redhat.com/jenkins/view/All/job/push_origin_aggregated_logging_release/)
+* Test Pull Request - master/journald - [![Test Pull Request - master/journald](https://ci.openshift.redhat.com/jenkins/buildStatus/icon?job=test_pull_request_openshift_ansible_logging)](https://ci.openshift.redhat.com/jenkins/view/All/job/test_pull_request_openshift_ansible_logging/)
+* Test Pull Request - master/json-file - [![Test Pull Request - master/json-file](https://ci.openshift.redhat.com/jenkins/buildStatus/icon?job=test_pull_request_origin_aggregated_logging_json_file)](https://ci.openshift.redhat.com/jenkins/view/All/job/test_pull_request_origin_aggregated_logging_json_file/)
 
 This repo contains the image definitions for the components of the logging
 stack as well as tools for building and deploying them.  The logging subsystem
-consists of multiple [components](#Components) abbreviated as the "EFK"
+consists of multiple [components](#components) abbreviated as the "EFK"
 stack: Elasticsearch, Fluentd, Kibana.
 
 The primary features this integration provides:
-* Multitenant support to isolate logs from various project namespaces
+* [Multitenant support](docs/access-control.md) to isolate logs from various project namespaces
 * Openshift OAuth2 integration
 * Historical log discovery and visualization
 * Log aggregation of pod and node logs
@@ -23,6 +27,8 @@ for your OpenShift logging cluster.  For the impatient, see the [quickstart](doc
 method, you MUST add `-v /var/log:/var/log` to the `docker` command line.
 OpenShift must have access to the container logs in order for Fluentd to read
 and process them.
+
+Please check the [release notes](docs/release_notes.md) for deprecated features or breaking changes .
 
 ## Components
 
@@ -71,3 +77,6 @@ Additionally, see [Checking EFK Health](docs/checking-efk-health.md)
 
 Any issues against the origin stack can be filed at https://github.com/openshift/origin-aggregated-logging/issues.  Please
 include as many [details](docs/issues.md) as possible in order to assist us in resolving the issue.
+
+## Troubleshooting CI
+[Troubleshooting CI](docs/troubleshooting-ci.md)

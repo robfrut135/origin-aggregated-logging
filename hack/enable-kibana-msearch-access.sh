@@ -52,7 +52,7 @@ else
     }
 fi
 
-LOGGING_PROJECT=${LOGGING_PROJECT:-logging}
+LOGGING_PROJECT=${LOGGING_PROJECT:-openshift-logging}
 
 # $1 - es pod name
 # $2 - es endpoint
@@ -64,7 +64,7 @@ function curl_es() {
     local args=( "${@:-}" )
 
     local secret_dir="/etc/elasticsearch/secret/"
-    oc exec -n $LOGGING_PROJECT "${pod}" -- \
+    oc exec -c elasticsearch -n $LOGGING_PROJECT "${pod}" -- \
        curl --silent --insecure "${args[@]}" \
        --key "${secret_dir}admin-key"   \
        --cert "${secret_dir}admin-cert" \
@@ -81,7 +81,7 @@ function curl_es_input() {
     local args=( "${@:-}" )
 
     local secret_dir="/etc/elasticsearch/secret/"
-    oc exec -i "${pod}" -n $LOGGING_PROJECT -- \
+    oc exec -c elasticsearch -i "${pod}" -n $LOGGING_PROJECT -- \
        curl --silent --insecure "${args[@]}" \
        --key "${secret_dir}admin-key"   \
        --cert "${secret_dir}admin-cert" \
@@ -155,13 +155,13 @@ fi
 
 role_name="multi_index_access_for_user_$user"
 
-config_index_name=$( oc exec -n $LOGGING_PROJECT $espod -- python -c "import yaml; print yaml.load(open('/usr/share/elasticsearch/config/elasticsearch.yml'))['searchguard']['config_index_name']" )
+config_index_name=$( oc exec -c elasticsearch -n $LOGGING_PROJECT $espod -- python -c "import yaml; print yaml.load(open('/usr/share/java/elasticsearch/config/elasticsearch.yml'))['searchguard']['config_index_name']" )
 if [ -z "$config_index_name" ] ; then
-    echo Error: could not extract the searchguard index name from $espod /usr/share/elasticsearch/config/elasticsearch.yml
+    echo Error: could not extract the searchguard index name from $espod /usr/share/java/elasticsearch/config/elasticsearch.yml
     exit 1
 fi
 
-sg_index=$( oc exec -n $LOGGING_PROJECT $espod -- bash -c "eval 'echo $config_index_name'" )
+sg_index=$( oc exec -c elasticsearch -n $LOGGING_PROJECT $espod -- bash -c "eval 'echo $config_index_name'" )
 if [ -z "$sg_index" ] ; then
     echo Error: could not convert "$config_index_name" in $espod to the searchguard index name
     exit 1

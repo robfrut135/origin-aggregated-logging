@@ -33,11 +33,11 @@ if [[ -z "${source_tag}" ]]; then
 fi
 
 images=(
-  ${PREFIX}logging-curator
+  ${PREFIX}logging-curator5
   ${PREFIX}logging-fluentd
-  ${PREFIX}logging-elasticsearch
-  ${PREFIX}logging-kibana
-  ${PREFIX}logging-auth-proxy
+  ${PREFIX}logging-elasticsearch5
+  ${PREFIX}logging-kibana5
+  ${PREFIX}logging-eventrouter
 )
 
 PUSH_OPTS=""
